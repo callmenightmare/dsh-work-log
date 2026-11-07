@@ -54,6 +54,18 @@ const ctx = {
       }
     }
     if (name === 'agentDefaultModel') return { currentSelection: () => ({ provider: 'fake', model: 'fake-model' }) }
+    if (name === 'deepseekAccount') {
+      return {
+        getBalance: async () => ({
+          status: 'ready',
+          value: [
+            { currency: 'USD', balance: '1.00' },
+            { currency: 'CNY', balance: '15.9892985' },
+          ],
+          bonusWallets: [],
+        }),
+      }
+    }
     return undefined
   },
   tools: { register: (definition) => { tools.push(definition); return () => {} } },
@@ -114,38 +126,40 @@ assert.equal(first.messages, 1, 'only real user messages counted')
 assert.deepEqual(first.folders, { 'src/auth': 2, '（根目录）': 1, '（工作目录外）': 1 })
 assert.equal(first.added, 83)
 
-const get = (path, query = '') => new Promise((resolve, reject) => {
+const call = (path, request) => new Promise((resolve, reject) => {
   const route = routes.get(path)
-  route.handler({ url: `${path}${query}`, method: 'GET' }, {
-    writeHead(status) {
-      if (status !== 200) reject(new Error(`status ${status}`))
-    },
-    end(payload) {
-      resolve(JSON.parse(payload))
-    },
-  })
-})
-
-const post = (path, body) => new Promise((resolve) => {
-  const route = routes.get(path)
-  const req = {
-    url: path,
-    method: 'POST',
-    async *[Symbol.asyncIterator]() {
-      yield Buffer.from(JSON.stringify(body), 'utf8')
-    },
+  if (route === undefined) {
+    reject(new Error(`no route ${path}`))
+    return
   }
-  route.handler(req, {
+  route.handler(request, {
     writeHead(status) {
       this.status = status
     },
     end(payload) {
-      resolve({ status: this.status, body: JSON.parse(payload) })
+      resolve({ status: this.status ?? 200, body: payload === undefined ? undefined : JSON.parse(payload) })
     },
   })
 })
 
-const data = await get('/work-log/data.json', '?date=2026-11-07')
+const get = (path, query = '') => call(path, {
+  url: `${path}${query}`,
+  method: 'GET',
+  socket: { remoteAddress: '127.0.0.1' },
+  headers: { host: '127.0.0.1:53192' },
+})
+
+const post = (path, body) => call(path, {
+  url: path,
+  method: 'POST',
+  socket: { remoteAddress: '127.0.0.1' },
+  headers: { host: '127.0.0.1:53192' },
+  async *[Symbol.asyncIterator]() {
+    yield Buffer.from(JSON.stringify(body), 'utf8')
+  },
+})
+
+const data = (await get('/work-log/data.json', '?date=2026-11-07')).body
 assert.equal(data.date, '2026-11-07')
 assert.equal(data.day.totals.projects, 1)
 assert.equal(data.day.totals.turns, 2)
@@ -159,7 +173,7 @@ assert.equal(project.summary, null, 'no summary before generation')
 assert.equal(project.folders.length, 3)
 assert.ok(!('prompt' in project) && !('reply' in project), 'the page payload carries no conversation')
 
-const calendar = await get('/work-log/month.json', '?month=2026-11')
+const calendar = (await get('/work-log/month.json', '?month=2026-11')).body
 assert.equal(calendar.month, '2026-11')
 assert.equal(calendar.days['2026-11-07'].turns, 2)
 assert.equal(calendar.days['2026-11-07'].ms, 25 * 60000)
@@ -181,7 +195,7 @@ const refreshed = await post('/work-log/summarize.json', { date: '2026-11-07', p
 assert.equal(refreshed.status, 200)
 assert.equal(llmCalls.length, 2, 'force regenerates')
 
-const after = await get('/work-log/data.json', '?date=2026-11-07')
+const after = (await get('/work-log/data.json', '?date=2026-11-07')).body
 assert.deepEqual(after.day.projects[0].summary.bullets, ['重构登录流程，拆成三段', '补了 6 个回归用例'])
 assert.equal(after.day.projects[0].summary.stale, false)
 
@@ -192,7 +206,7 @@ assert.match(read.text, /25 分钟/)
 assert.match(read.text, /重构登录流程，拆成三段/)
 
 await tools[0].execute({ action: 'summarize', date: '2026-11-07', project: '/work/project', text: '- 把登录流程拆成三段并补上回归用例' })
-const agentWritten = await get('/work-log/data.json', '?date=2026-11-07')
+const agentWritten = (await get('/work-log/data.json', '?date=2026-11-07')).body
 assert.deepEqual(agentWritten.day.projects[0].summary.bullets, ['把登录流程拆成三段并补上回归用例'])
 assert.equal(agentWritten.day.projects[0].summary.source, 'agent')
 
@@ -223,11 +237,43 @@ await new Promise((resolve) => setTimeout(resolve, 300))
 const noPhantom = JSON.parse(await readFile(file, 'utf8'))
 assert.ok(!Object.keys(noPhantom.items).some((key) => key.endsWith('#0')), 'no phantom turn-0 item')
 
+// the routes reject anything that is not a loopback, same-origin request
+const remote = await call('/work-log/data.json', {
+  url: '/work-log/data.json',
+  method: 'GET',
+  socket: { remoteAddress: '10.0.0.8' },
+  headers: { host: '127.0.0.1:53192' },
+})
+assert.equal(remote.status, 403, 'a non-loopback peer is rejected')
+
+const crossOrigin = await call('/work-log/data.json', {
+  url: '/work-log/data.json',
+  method: 'GET',
+  socket: { remoteAddress: '127.0.0.1' },
+  headers: { host: '127.0.0.1:53192', origin: 'https://evil.example' },
+})
+assert.equal(crossOrigin.status, 403, 'a foreign Origin is rejected')
+
+const sameOrigin = await call('/work-log/data.json', {
+  url: '/work-log/data.json',
+  method: 'GET',
+  socket: { remoteAddress: '127.0.0.1' },
+  headers: { host: '127.0.0.1:53192', origin: 'http://127.0.0.1:53192' },
+})
+assert.equal(sameOrigin.status, 200, 'the app\'s own origin is allowed')
+
+const oversized = await post('/work-log/summarize.json', { project: 'x'.repeat(20000) })
+assert.equal(oversized.status, 413, 'a huge body is refused')
+
+// the wallet is the CNY one, not the first wallet the platform happened to list
+assert.equal(data.day.account.currency, 'CNY')
+assert.equal(data.day.account.balance, 15.9892985)
+
 // an unfinished turn runs to now, so the HUD clock keeps ticking
 const nowish = Date.now()
 emit('turn/start', { turn: 3 }, 20, nowish - 60000)
 emit('user/message', { id: 'm4', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '还在改样式' }] }, 21, nowish - 30000)
-const live = await get('/work-log/data.json', '?date=2026-11-07')
+const live = (await get('/work-log/data.json', '?date=2026-11-07')).body
 assert.equal(live.day.running, true)
 assert.ok(live.day.totalMs >= 25 * 60000, 'the open turn only adds time')
 

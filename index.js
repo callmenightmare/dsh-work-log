@@ -35,6 +35,10 @@ const MAX_TURN_MS = 3 * 60 * 60 * 1000
 const LIVE_TURN_MS = 3 * 60 * 1000
 /** Upper bound on the model call that writes one project summary. */
 const SUMMARY_MAX_TOKENS = 1500
+/** Largest accepted request body on the summarize route. */
+const MAX_BODY_BYTES = 16 * 1024
+/** One summary call may not hang the route forever. */
+const SUMMARY_TIMEOUT_MS = 60 * 1000
 
 const ROOT_FOLDER = '（根目录）'
 const OUTSIDE_FOLDER = '（工作目录外）'
@@ -252,10 +256,14 @@ function apply(ctx) {
   /** `${date}|${project}` -> in-flight summary generation. */
   const summarizing = new Map()
   const dirty = new Set()
-  /** Last wallet read, so the page cannot hammer the account API. */
+  /** Last successful wallet read, so the page cannot hammer the account API. */
   let lastBalanceAt = 0
+  /** One wallet read at a time, however many requests arrive together. */
+  let balanceInFlight = null
   let timer = null
   let writing = null
+  /** Monotonic suffix so two writers never share a temp file. */
+  let writeSeq = 0
 
   const warn = (message, error) => {
     try {
@@ -315,29 +323,32 @@ function apply(ctx) {
     timer.unref?.()
   }
 
-  /** Write every dirty day atomically. */
+  /** Write every dirty day atomically, one writer at a time. */
   async function flush() {
-    if (writing !== null) await writing.catch(() => undefined)
-    const dates = [...dirty]
-    dirty.clear()
-    if (dates.length === 0) return
-    writing = (async () => {
+    const previous = writing
+    const job = (async () => {
+      if (previous !== null) await previous.catch(() => undefined)
+      const dates = [...dirty]
+      dirty.clear()
+      if (dates.length === 0) return
       await mkdir(dataDir, { recursive: true })
       for (const date of dates) {
         const day = days.get(date)
         if (day === undefined) continue
         const target = join(dataDir, `${date}.json`)
-        const temporary = `${target}.${process.pid}.tmp`
+        writeSeq += 1
+        const temporary = `${target}.${process.pid}.${writeSeq}.tmp`
         await writeFile(temporary, `${JSON.stringify(day, null, 2)}\n`, 'utf8')
         await rename(temporary, target)
       }
     })()
+    writing = job
     try {
-      await writing
+      await job
     } catch (error) {
       warn('could not persist the work log', error)
     } finally {
-      writing = null
+      if (writing === job) writing = null
     }
   }
 
@@ -517,16 +528,31 @@ function apply(ctx) {
     void flush()
   })
 
-  /** First non-bonus wallet of a balance reply, or undefined when unavailable. */
+  /**
+   * The recharge wallet of a balance reply: CNY first, then USD, then whatever
+   * the platform returned first. Wallets of the chosen currency are summed, so
+   * a split wallet still reports one balance.
+   */
   function walletOf(balance) {
     if (balance === null || balance === undefined) return undefined
     if (balance.status !== 'ready' || !Array.isArray(balance.value) || balance.value.length === 0) return undefined
     const wallets = balance.value.map((wallet) => ({ currency: wallet.currency, balance: wallet.balance }))
     const bonus = (balance.bonusWallets ?? []).map((wallet) => ({ currency: wallet.currency, balance: wallet.balance }))
-    const wallet = balance.value[0]
-    const amount = Number(wallet?.balance)
-    if (!Number.isFinite(amount)) return undefined
-    return { currency: wallet.currency === 'USD' ? 'USD' : 'CNY', amount, wallets, bonus }
+    const primary = balance.value.find((wallet) => wallet.currency === 'CNY')
+      ?? balance.value.find((wallet) => wallet.currency === 'USD')
+      ?? balance.value[0]
+    const currency = primary.currency === 'USD' ? 'USD' : 'CNY'
+    let amount = 0
+    let found = false
+    for (const wallet of balance.value) {
+      if (wallet.currency !== primary.currency) continue
+      const value = Number(wallet.balance)
+      if (!Number.isFinite(value)) continue
+      amount += value
+      found = true
+    }
+    if (!found) return undefined
+    return { currency, amount, wallets, bonus }
   }
 
   /**
@@ -534,39 +560,50 @@ function apply(ctx) {
    * A top-up raises the opening balance instead of producing negative spend.
    */
   async function sampleBalance(force) {
+    if (balanceInFlight !== null) return balanceInFlight
     const now = Date.now()
     if (!force && now - lastBalanceAt < BALANCE_MIN_INTERVAL_MS) return
     const account = ctx.get('deepseekAccount')
     if (account === undefined || typeof account.getBalance !== 'function') return
-    lastBalanceAt = now
-    let balance
+
+    balanceInFlight = (async () => {
+      let balance
+      try {
+        balance = await account.getBalance({
+          version: process.env.DSH_CLIENT_VERSION ?? '0.0.0',
+          locale: 'zh',
+          timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
+        })
+      } catch (error) {
+        warn('could not read the account balance', error)
+        return
+      }
+      const wallet = walletOf(balance)
+      if (wallet === undefined) return
+      // Only a successful read opens the throttle window.
+      lastBalanceAt = Date.now()
+      const day = await loadDay(localDay(now))
+      const previous = day.account
+      // A rising balance is a recharge, not negative spend: keep it in topUps.
+      const increase = previous === undefined ? 0 : Math.max(0, wallet.amount - previous.current)
+      day.account = {
+        currency: wallet.currency,
+        opening: previous === undefined ? wallet.amount : previous.opening,
+        current: wallet.amount,
+        topUps: (previous?.topUps ?? 0) + increase,
+        wallets: wallet.wallets,
+        bonus: wallet.bonus,
+        at: now,
+      }
+      touch(day.date)
+      await flush()
+    })()
+
     try {
-      balance = await account.getBalance({
-        version: process.env.DSH_CLIENT_VERSION ?? '0.0.0',
-        locale: 'zh',
-        timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
-      })
-    } catch (error) {
-      warn('could not read the account balance', error)
-      return
+      return await balanceInFlight
+    } finally {
+      balanceInFlight = null
     }
-    const wallet = walletOf(balance)
-    if (wallet === undefined) return
-    const day = await loadDay(localDay(now))
-    const previous = day.account
-    // A rising balance is a recharge, not negative spend: keep it in topUps.
-    const increase = previous === undefined ? 0 : Math.max(0, wallet.amount - previous.current)
-    day.account = {
-      currency: wallet.currency,
-      opening: previous === undefined ? wallet.amount : previous.opening,
-      current: wallet.amount,
-      topUps: (previous?.topUps ?? 0) + increase,
-      wallets: wallet.wallets,
-      bonus: wallet.bonus,
-      at: now,
-    }
-    touch(day.date)
-    await flush()
   }
 
   /** Read the day files that exist on disk, newest first. */
@@ -657,7 +694,11 @@ function apply(ctx) {
       const selection = ctx.get('agentDefaultModel')?.currentSelection?.()
       if (selection === undefined) throw new Error('没有可用的默认模型')
 
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), SUMMARY_TIMEOUT_MS)
+      timeout.unref?.()
       const stream = llm.stream({
+        signal: controller.signal,
         provider: selection.provider,
         model: selection.model,
         system: [
@@ -675,13 +716,20 @@ function apply(ctx) {
       let blockText = ''
       let failure
       let reason = ''
-      for await (const chunk of stream) {
-        if (chunk.type === 'text-delta') raw += chunk.text
-        else if (chunk.type === 'block-end' && chunk.block?.type === 'text') blockText += chunk.block.text
-        else if (chunk.type === 'finish') {
-          reason = chunk.reason.kind
-          if (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted') failure = chunk.reason.failure
+      try {
+        for await (const chunk of stream) {
+          if (chunk.type === 'text-delta') raw += chunk.text
+          else if (chunk.type === 'block-end' && chunk.block?.type === 'text') blockText += chunk.block.text
+          else if (chunk.type === 'finish') {
+            reason = chunk.reason.kind
+            if (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted') failure = chunk.reason.failure
+          }
         }
+      } finally {
+        clearTimeout(timeout)
+      }
+      if (controller.signal.aborted && failure === undefined) {
+        throw new Error(`模型调用超时（${SUMMARY_TIMEOUT_MS / 1000} 秒）`)
       }
       if (failure !== undefined) throw new Error(failure.message ?? '模型调用失败')
       if (raw.trim() === '' && blockText !== '') raw = blockText
@@ -712,12 +760,43 @@ function apply(ctx) {
   }
 
   // ── page routes ────────────────────────────────────────────────────────────
+
+  /**
+   * Reject anything that is not a loopback, same-origin request: these routes
+   * expose the wallet balance and can spend model quota.
+   */
+  function rejectRoute(req, res) {
+    const address = req.socket?.remoteAddress
+    const local = address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'
+    if (!local) {
+      res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({ error: 'local access only' }))
+      return true
+    }
+    const origin = req.headers?.origin
+    if (typeof origin === 'string' && origin !== '') {
+      let host
+      try {
+        host = new URL(origin).host
+      } catch {
+        host = undefined
+      }
+      if (host === undefined || host !== req.headers?.host) {
+        res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ error: 'cross-origin request rejected' }))
+        return true
+      }
+    }
+    return false
+  }
+
   const webServer = ctx.get('webServer')
   if (webServer !== undefined) {
     ctx.effect(() => webServer.register({
       kind: 'exact',
       path: '/work-log/data.json',
       handler: async (req, res) => {
+        if (rejectRoute(req, res)) return
         try {
           const url = new URL(req.url ?? '/', 'http://localhost')
           const requested = url.searchParams.get('date') ?? ''
@@ -745,6 +824,7 @@ function apply(ctx) {
       kind: 'exact',
       path: '/work-log/month.json',
       handler: async (req, res) => {
+        if (rejectRoute(req, res)) return
         try {
           const url = new URL(req.url ?? '/', 'http://localhost')
           const raw = url.searchParams.get('month') ?? ''
@@ -777,6 +857,7 @@ function apply(ctx) {
       kind: 'exact',
       path: '/work-log/summarize.json',
       handler: async (req, res) => {
+        if (rejectRoute(req, res)) return
         const respond = (status, body) => {
           res.writeHead(status, {
             'content-type': 'application/json; charset=utf-8',
@@ -787,7 +868,12 @@ function apply(ctx) {
         try {
           if (req.method !== 'POST') return respond(405, { ok: false, error: 'POST only' })
           const chunks = []
-          for await (const chunk of req) chunks.push(chunk)
+          let bytes = 0
+          for await (const chunk of req) {
+            bytes += chunk.length
+            if (bytes > MAX_BODY_BYTES) return respond(413, { ok: false, error: 'payload too large' })
+            chunks.push(chunk)
+          }
           const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
           const date = /^\d{4}-\d{2}-\d{2}$/.test(body.date ?? '') ? body.date : localDay(Date.now())
           const project = String(body.project ?? '')

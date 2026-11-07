@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.2 — 2026-11-07
+
+### Fixed
+
+- Concurrent flushes could share one temp file and interleave writes; flushes are now serialised and every temp name is unique.
+- A hung provider call blocked the summarize route forever; it now aborts after 60 seconds.
+- The HTTP routes now reject non-loopback peers, foreign `Origin` headers, and request bodies over 16 KB. They expose the wallet balance and can spend model quota.
+- A failed balance read no longer opens the 5-minute throttle window, and only one read runs at a time.
+- The wallet prefers CNY, then USD, and sums wallets of that currency instead of blindly taking the first.
+- Client requests give up after 10 seconds instead of loading forever.
+
 ## 1.0.1 — 2026-11-07
 
 ### Changed

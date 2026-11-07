@@ -202,6 +202,13 @@ window.__ModuleLoader__.load({
       return dayString(date)
     }
 
+    /** A request that gives up after `ms`; undefined when the browser lacks it. */
+    function timeoutSignal(ms) {
+      return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+        ? AbortSignal.timeout(ms)
+        : undefined
+    }
+
     /** Interpolate `{name}` placeholders in a dictionary entry. */
     function format(text, values) {
       return String(text).replace(/\{(\w+)\}/g, (match, key) => (values[key] === undefined ? match : String(values[key])))
@@ -517,7 +524,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         let alive = true
         const load = () => {
-          fetch('/work-log/data.json', { headers: { accept: 'application/json' } })
+          fetch('/work-log/data.json', { headers: { accept: 'application/json' }, signal: timeoutSignal(10000) })
             .then((response) => (response.ok ? response.json() : null))
             .then((payload) => {
               if (!alive || payload === null || payload.day === undefined) return
@@ -682,6 +689,7 @@ window.__ModuleLoader__.load({
         freshRef.current = false
         fetch(`/work-log/data.json${query}${fresh ? `${query === '' ? '?' : '&'}fresh=1` : ''}`, {
           headers: { accept: 'application/json' },
+          signal: timeoutSignal(10000),
         })
           .then((response) => {
             if (!response.ok) throw new Error(`HTTP ${response.status}`)
