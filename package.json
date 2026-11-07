@@ -1,0 +1,53 @@
+{
+  "name": "dsh-work-log",
+  "version": "1.0.0",
+  "description": "Daily work log for DeepSeek Harness: per-project time, model-written summaries, wallet balance, and an always-on floating pill.",
+  "license": "MIT",
+  "author": "zengmengfan",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/callmenightmare/dsh-work-log.git"
+  },
+  "bugs": {
+    "url": "https://github.com/callmenightmare/dsh-work-log/issues"
+  },
+  "homepage": "https://github.com/callmenightmare/dsh-work-log#readme",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "work-log",
+    "timetracking"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.1"
+  },
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  }
+}

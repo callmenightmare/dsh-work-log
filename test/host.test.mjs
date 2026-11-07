@@ -1,0 +1,229 @@
+/**
+ * Functional test of the work-log host half against a fake Cordis context.
+ * Verifies the event fold, per-project durations, persistence, the JSON routes,
+ * model-generated summaries, and the `work_log` tool without touching the live
+ * profile or the network.
+ */
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import assert from 'node:assert/strict'
+
+const home = await mkdtemp(join(tmpdir(), 'work-log-test-'))
+process.env.DSH_HOME = home
+
+const { apply } = await import('../index.js')
+
+const listeners = new Map()
+const tools = []
+const routes = new Map()
+const summaries = new Map()
+const llmCalls = []
+
+const fakeStream = (text) => (async function* () {
+  yield { type: 'text-delta', index: 0, text }
+  yield { type: 'finish', reason: { kind: 'stop' } }
+})()
+
+const ctx = {
+  on(event, listener) {
+    listeners.set(event, listener)
+    return () => listeners.delete(event)
+  },
+  effect(callback) {
+    callback()
+    return () => {}
+  },
+  get(name) {
+    if (name === 'workspaceChanges') return { summary: (_sessionId, seq) => summaries.get(seq) }
+    if (name === 'sessions') return { list: () => [] }
+    if (name === 'webServer') {
+      return {
+        register: (definition) => {
+          routes.set(definition.path, definition)
+          return () => {}
+        },
+      }
+    }
+    if (name === 'llm') {
+      return {
+        stream: (options) => {
+          llmCalls.push(options)
+          return fakeStream('- 重构登录流程，拆成三段\n- 补了 6 个回归用例\n')
+        },
+      }
+    }
+    if (name === 'agentDefaultModel') return { currentSelection: () => ({ provider: 'fake', model: 'fake-model' }) }
+    return undefined
+  },
+  tools: { register: (definition) => { tools.push(definition); return () => {} } },
+  logger: { warn: (...args) => console.warn('[warn]', ...args), info: () => {} },
+}
+
+apply(ctx)
+assert.equal(tools.length, 1, 'work_log tool registered')
+assert.ok(routes.has('/work-log/data.json'), 'data route registered')
+assert.ok(routes.has('/work-log/summarize.json'), 'summarize route registered')
+assert.ok(routes.has('/work-log/month.json'), 'calendar route registered')
+
+const session = {
+  id: 'session-test-0001',
+  header: { cwd: '/work/project' },
+  ownEvents: () => [],
+}
+const emit = (type, data, seq = 1, time = Date.now()) => {
+  listeners.get('session/event')?.(session, { type, seq, time, data })
+}
+
+const at = (hour, minute) => new Date(2026, 10, 7, hour, minute, 0).getTime()
+
+// Turn 1: 09:00 -> 09:10 (10 minutes)
+emit('turn/start', { turn: 1 }, 1, at(9, 0))
+emit('user/message', { id: 'm1', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '重构登录流程并补测试' }] }, 2, at(9, 0) + 1000)
+emit('user/message', { id: 'm2', role: 'user', source: { kind: 'runtime-context' }, content: [{ type: 'text', text: 'Current runtime context...' }] }, 3, at(9, 0) + 2000)
+summaries.set(9, {
+  turn: 1,
+  cwd: '/work/project',
+  files: [
+    { path: 'src/auth/login.ts', display: 'src/auth/login.ts', added: 20, deleted: 4 },
+    { path: 'src/auth/login.test.ts', display: 'src/auth/login.test.ts', added: 60, deleted: 0 },
+    { path: 'package.json', display: 'package.json', added: 1, deleted: 1 },
+    { path: '../outside/x.ts', display: '../outside/x.ts', added: 2, deleted: 0 },
+  ],
+  total: 4,
+  added: 83,
+  deleted: 5,
+})
+emit('workspace/changes', { turn: 1 }, 9, at(9, 9))
+emit('assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '登录流程已拆成三个阶段，并补了 6 个用例。' }] }, stream: [] }, 10, at(9, 9))
+emit('turn/end', { turn: 1, reason: { kind: 'completed' } }, 11, at(9, 10))
+
+// Turn 2: 09:30 -> 09:45 (15 minutes)
+emit('turn/start', { turn: 2 }, 12, at(9, 30))
+emit('user/message', { id: 'm3', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '再补一版迁移脚本' }] }, 13, at(9, 30) + 1000)
+emit('turn/end', { turn: 2, reason: { kind: 'completed' } }, 14, at(9, 45))
+
+await new Promise((resolve) => setTimeout(resolve, 700))
+
+const file = join(home, 'work-log', '2026-11-07.json')
+const stored = JSON.parse(await readFile(file, 'utf8'))
+assert.equal(Object.keys(stored.items).length, 2, 'two items stored')
+const first = Object.values(stored.items).find((item) => item.turn === 1)
+assert.equal(first.prompt, '重构登录流程并补测试', 'runtime context is not the prompt')
+assert.equal(first.messages, 1, 'only real user messages counted')
+assert.deepEqual(first.folders, { 'src/auth': 2, '（根目录）': 1, '（工作目录外）': 1 })
+assert.equal(first.added, 83)
+
+const get = (path, query = '') => new Promise((resolve, reject) => {
+  const route = routes.get(path)
+  route.handler({ url: `${path}${query}`, method: 'GET' }, {
+    writeHead(status) {
+      if (status !== 200) reject(new Error(`status ${status}`))
+    },
+    end(payload) {
+      resolve(JSON.parse(payload))
+    },
+  })
+})
+
+const post = (path, body) => new Promise((resolve) => {
+  const route = routes.get(path)
+  const req = {
+    url: path,
+    method: 'POST',
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from(JSON.stringify(body), 'utf8')
+    },
+  }
+  route.handler(req, {
+    writeHead(status) {
+      this.status = status
+    },
+    end(payload) {
+      resolve({ status: this.status, body: JSON.parse(payload) })
+    },
+  })
+})
+
+const data = await get('/work-log/data.json', '?date=2026-11-07')
+assert.equal(data.date, '2026-11-07')
+assert.equal(data.day.totals.projects, 1)
+assert.equal(data.day.totals.turns, 2)
+// 10 + 15 minutes of active turns, with the 20-minute gap excluded.
+assert.equal(data.day.totalMs, 25 * 60000)
+const project = data.day.projects[0]
+assert.equal(project.name, 'project')
+assert.equal(project.ms, 25 * 60000)
+assert.equal(project.turns, 2)
+assert.equal(project.summary, null, 'no summary before generation')
+assert.equal(project.folders.length, 3)
+assert.ok(!('prompt' in project) && !('reply' in project), 'the page payload carries no conversation')
+
+const calendar = await get('/work-log/month.json', '?month=2026-11')
+assert.equal(calendar.month, '2026-11')
+assert.equal(calendar.days['2026-11-07'].turns, 2)
+assert.equal(calendar.days['2026-11-07'].ms, 25 * 60000)
+assert.equal(calendar.days['2026-11-06'], undefined, 'a day without records is absent')
+
+const summarized = await post('/work-log/summarize.json', { date: '2026-11-07', project: '/work/project' })
+assert.equal(summarized.status, 200)
+assert.equal(summarized.body.ok, true)
+assert.deepEqual(summarized.body.summary.bullets, ['重构登录流程，拆成三段', '补了 6 个回归用例'])
+assert.equal(llmCalls.length, 1)
+assert.match(llmCalls[0].messages[0].content[0].text, /重构登录流程并补测试/)
+assert.ok(!/Current runtime context/.test(llmCalls[0].messages[0].content[0].text), 'prompt excludes injected context')
+
+const cached = await post('/work-log/summarize.json', { date: '2026-11-07', project: '/work/project' })
+assert.equal(cached.status, 200)
+assert.equal(llmCalls.length, 1, 'an unchanged project reuses its cached summary')
+
+const refreshed = await post('/work-log/summarize.json', { date: '2026-11-07', project: '/work/project', force: true })
+assert.equal(refreshed.status, 200)
+assert.equal(llmCalls.length, 2, 'force regenerates')
+
+const after = await get('/work-log/data.json', '?date=2026-11-07')
+assert.deepEqual(after.day.projects[0].summary.bullets, ['重构登录流程，拆成三段', '补了 6 个回归用例'])
+assert.equal(after.day.projects[0].summary.stale, false)
+
+const read = await tools[0].execute({ action: 'read', date: '2026-11-07' })
+assert.equal(read.projects, 1)
+assert.equal(read.totalMs, 25 * 60000)
+assert.match(read.text, /25 分钟/)
+assert.match(read.text, /重构登录流程，拆成三段/)
+
+await tools[0].execute({ action: 'summarize', date: '2026-11-07', project: '/work/project', text: '- 把登录流程拆成三段并补上回归用例' })
+const agentWritten = await get('/work-log/data.json', '?date=2026-11-07')
+assert.deepEqual(agentWritten.day.projects[0].summary.bullets, ['把登录流程拆成三段并补上回归用例'])
+assert.equal(agentWritten.day.projects[0].summary.source, 'agent')
+
+const recorded = await tools[0].execute({ action: 'record', text: '顺手清理了旧分支', folders: ['scripts'] })
+assert.equal(recorded.projects, 1)
+const withNote = JSON.parse(await readFile(file, 'utf8'))
+assert.equal(withNote.notes.length, 1)
+
+const bad = await post('/work-log/summarize.json', { date: '2026-11-07', project: '/nope' })
+assert.equal(bad.status, 502)
+assert.equal(bad.body.ok, false)
+
+// a message whose turn/start never arrived must not become a phantom turn-0 item
+const orphan = { id: 'session-orphan', header: { cwd: '/work/project' }, ownEvents: () => [] }
+listeners.get('session/event')?.(orphan, {
+  type: 'user/message',
+  seq: 30,
+  time: Date.now(),
+  data: { id: 'm9', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '没有 turn/start 的消息' }] },
+})
+await new Promise((resolve) => setTimeout(resolve, 300))
+const noPhantom = JSON.parse(await readFile(file, 'utf8'))
+assert.ok(!Object.keys(noPhantom.items).some((key) => key.endsWith('#0')), 'no phantom turn-0 item')
+
+// an unfinished turn runs to now, so the HUD clock keeps ticking
+const nowish = Date.now()
+emit('turn/start', { turn: 3 }, 20, nowish - 60000)
+emit('user/message', { id: 'm4', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '还在改样式' }] }, 21, nowish - 30000)
+const live = await get('/work-log/data.json', '?date=2026-11-07')
+assert.equal(live.day.running, true)
+assert.ok(live.day.totalMs >= 25 * 60000, 'the open turn only adds time')
+
+await rm(home, { recursive: true, force: true })
+console.log('work-log host test: ok')

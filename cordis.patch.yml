@@ -1,0 +1,5 @@
+# Work log: host recorder (session events + workspace changes), the `work_log`
+# tool, and the Web panel's `/work-log/data.json` route.
+- insert:
+    - id: work-log
+      name: 'dsh-work-log'
