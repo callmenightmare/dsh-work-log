@@ -1,9 +1,24 @@
 # dsh-work-log
 
+[![license](https://img.shields.io/github/license/callmenightmare/dsh-work-log.svg)](LICENSE)
+[![version](https://img.shields.io/github/v/tag/callmenightmare/dsh-work-log?label=version)](https://github.com/callmenightmare/dsh-work-log/tags)
+[![stars](https://img.shields.io/github/stars/callmenightmare/dsh-work-log)](https://github.com/callmenightmare/dsh-work-log/stargazers)
+![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.1%2B-6E56CF)
+
 A daily work log for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — one npm-style bundle with two surfaces and one data source.
 
 - **Full panel** (sidebar entry → main column): the day's work time, wallet balance and spend, a month calendar, and one card per project with a model-written summary of what got solved.
 - **Floating pill** (`shell.overlay`): always visible in the top-right corner, draggable, shows today's work time and current balance, with a jump button to the panel. It keeps showing while you switch Sessions and panels.
+
+## Screenshots
+
+**Report panel** — a day of work grouped by project: total time, balance, today's spend, and what each project solved.
+
+![Report panel](docs/panel.png)
+
+**Floating pill** — always-on HUD, draggable, shows today's work time and balance; `›` opens the panel.
+
+<img src="docs/pill.png" alt="Floating pill" width="366">
 
 > 非官方插件。Not affiliated with DeepSeek.
 
@@ -95,6 +110,10 @@ node test/host.test.mjs
 ```
 
 The test runs the host half against a fake Cordis context: event folding, durations, persistence, the three HTTP routes, model summarization (with a stub stream), and the agent tool.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

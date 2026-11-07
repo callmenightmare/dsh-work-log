@@ -1,6 +1,6 @@
 {
   "name": "dsh-work-log",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Daily work log for DeepSeek Harness: per-project time, model-written summaries, wallet balance, and an always-on floating pill.",
   "license": "MIT",
   "author": "zengmengfan",
@@ -35,7 +35,8 @@
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
-    "icon.svg"
+    "icon.svg",
+    "CHANGELOG.md"
   ],
   "dsh": {
     "bundle": {

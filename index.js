@@ -205,7 +205,9 @@ function dayView(day) {
     account: day.account === undefined ? null : {
       currency: day.account.currency,
       balance: day.account.current,
-      spend: Math.max(0, Math.round((day.account.opening - day.account.current) * 100) / 100),
+      wallets: day.account.wallets ?? [],
+      bonus: day.account.bonus ?? [],
+      spend: Math.max(0, Math.round((day.account.opening - day.account.current + (day.account.topUps ?? 0)) * 100) / 100),
       at: day.account.at,
     },
     running: Object.values(day.items).some((item) => item.endedAt === undefined
@@ -519,10 +521,12 @@ function apply(ctx) {
   function walletOf(balance) {
     if (balance === null || balance === undefined) return undefined
     if (balance.status !== 'ready' || !Array.isArray(balance.value) || balance.value.length === 0) return undefined
+    const wallets = balance.value.map((wallet) => ({ currency: wallet.currency, balance: wallet.balance }))
+    const bonus = (balance.bonusWallets ?? []).map((wallet) => ({ currency: wallet.currency, balance: wallet.balance }))
     const wallet = balance.value[0]
     const amount = Number(wallet?.balance)
     if (!Number.isFinite(amount)) return undefined
-    return { currency: wallet.currency === 'USD' ? 'USD' : 'CNY', amount }
+    return { currency: wallet.currency === 'USD' ? 'USD' : 'CNY', amount, wallets, bonus }
   }
 
   /**
@@ -550,10 +554,15 @@ function apply(ctx) {
     if (wallet === undefined) return
     const day = await loadDay(localDay(now))
     const previous = day.account
+    // A rising balance is a recharge, not negative spend: keep it in topUps.
+    const increase = previous === undefined ? 0 : Math.max(0, wallet.amount - previous.current)
     day.account = {
       currency: wallet.currency,
-      opening: previous === undefined || wallet.amount > previous.opening ? wallet.amount : previous.opening,
+      opening: previous === undefined ? wallet.amount : previous.opening,
       current: wallet.amount,
+      topUps: (previous?.topUps ?? 0) + increase,
+      wallets: wallet.wallets,
+      bonus: wallet.bonus,
       at: now,
     }
     touch(day.date)
@@ -579,11 +588,11 @@ function apply(ctx) {
   }
 
   /** The page/tool payload for one requested day: projects, durations, summaries. */
-  async function payload(requested, dayCount) {
+  async function payload(requested, dayCount, forceBalance) {
     const today = localDay(Date.now())
     const target = /^\d{4}-\d{2}-\d{2}$/.test(requested) ? requested : today
     await Promise.race([
-      sampleBalance(false).catch(() => undefined),
+      sampleBalance(forceBalance === true).catch(() => undefined),
       new Promise((resolve) => {
         const id = setTimeout(resolve, 2500)
         id.unref?.()
@@ -713,7 +722,12 @@ function apply(ctx) {
           const url = new URL(req.url ?? '/', 'http://localhost')
           const requested = url.searchParams.get('date') ?? ''
           const dayCount = Number(url.searchParams.get('days') ?? DEFAULT_DAYS)
-          const body = await payload(requested, Number.isFinite(dayCount) ? Math.min(90, Math.max(1, dayCount)) : DEFAULT_DAYS)
+          const fresh = url.searchParams.get('fresh') === '1'
+          const body = await payload(
+            requested,
+            Number.isFinite(dayCount) ? Math.min(90, Math.max(1, dayCount)) : DEFAULT_DAYS,
+            fresh,
+          )
           res.writeHead(200, {
             'content-type': 'application/json; charset=utf-8',
             'cache-control': 'no-store',
@@ -800,8 +814,8 @@ function apply(ctx) {
       action: {
         type: 'string',
         required: true,
-        enum: ['read', 'record', 'summarize'],
-        description: 'read: projects, durations, and summaries. record: append a note. summarize: replace one project\'s summary.',
+        enum: ['read', 'record', 'summarize', 'refresh'],
+        description: 'read: projects, durations, and summaries. record: append a note. summarize: replace one project\'s summary with text you write. refresh: ask the model to regenerate summaries (one project, or every project of the day).',
       },
       date: {
         type: 'string',
@@ -857,6 +871,22 @@ function apply(ctx) {
         })
         touch(date)
         await flush()
+      }
+
+      if (args.action === 'refresh') {
+        const keys = [...new Set(Object.values(day.items)
+          .map((item) => (item.cwd === '' ? UNKNOWN_PROJECT : item.cwd)))]
+        const wanted = args.project === undefined || args.project === ''
+          ? keys
+          : keys.filter((key) => key === args.project || basename(key) === args.project)
+        if (wanted.length === 0) throw new Error('这一天没有可总结的项目')
+        for (const key of wanted) {
+          try {
+            await generateSummary(date, key, true)
+          } catch (error) {
+            throw new Error(`刷新 ${key} 失败：${error instanceof Error ? error.message : String(error)}`)
+          }
+        }
       }
 
       if (args.action === 'summarize') {

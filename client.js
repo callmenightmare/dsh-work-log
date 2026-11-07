@@ -16,6 +16,7 @@ window.__ModuleLoader__.load({
       'nav.next': '后一天',
       'nav.today': '今天',
       'nav.refresh': '刷新',
+      'nav.refreshHint': '刷新数据，并重新读取余额',
       'cal.month': '{year} 年 {month} 月',
       'cal.prev': '上个月',
       'cal.next': '下个月',
@@ -40,11 +41,9 @@ window.__ModuleLoader__.load({
       'project.noFiles': '没有文件改动',
       'summary.none': '这个项目今天还没有摘要。',
       'summary.generate': '生成摘要',
-      'summary.regenerate': '更新摘要',
       'summary.busy': '正在总结…',
       'summary.at': '摘要更新于 {time}',
       'summary.agent': '（由 Harness 撰写）',
-      'summary.stale': '之后又有新的工作',
       'summary.error': '生成失败：{error}',
       'section.notes': '备注',
       'empty.title': '这一天还没有记录',
@@ -62,6 +61,7 @@ window.__ModuleLoader__.load({
       'nav.next': 'Next day',
       'nav.today': 'Today',
       'nav.refresh': 'Refresh',
+      'nav.refreshHint': 'Reload the data and re-read the wallet balance',
       'cal.month': '{month}/{year}',
       'cal.prev': 'Previous month',
       'cal.next': 'Next month',
@@ -86,11 +86,9 @@ window.__ModuleLoader__.load({
       'project.noFiles': 'No file changes',
       'summary.none': 'No summary for this project yet.',
       'summary.generate': 'Summarize',
-      'summary.regenerate': 'Update summary',
       'summary.busy': 'Summarizing…',
       'summary.at': 'Summary updated at {time}',
       'summary.agent': '(written by Harness)',
-      'summary.stale': 'Newer work is not covered',
       'summary.error': 'Failed: {error}',
       'section.notes': 'Notes',
       'empty.title': 'Nothing recorded for this day',
@@ -140,7 +138,6 @@ window.__ModuleLoader__.load({
 .dshwl-pending{margin:10px 0 0;font-size:12px;color:var(--wl-muted);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .dshwl-note-line{margin:10px 0 0;font-size:10.5px;color:var(--wl-muted);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .dshwl-error-line{margin:10px 0 0;font-size:11px;color:var(--wl-bad);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.dshwl-stale{margin-left:6px;font-size:10px;padding:1px 7px;border-radius:999px;background:rgba(139,92,246,.16);border:1px solid rgba(192,132,252,.35);color:#DCC6FF}
 .dshwl-btn:focus-visible,.dshwl-link:focus-visible,.dshwl-cell:focus-visible,.dshwl-mini-cell:focus-visible{outline:2px solid var(--wl-accent-2);outline-offset:2px}
 .dshwl-cal{margin:18px 0 0;padding:14px 16px 12px;border-radius:14px;border:1px solid var(--wl-edge);background:var(--wl-glass);backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 24px 48px -36px rgba(0,0,0,.95)}
 .dshwl-cal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
@@ -156,20 +153,23 @@ window.__ModuleLoader__.load({
 .dshwl-cell-data{background:rgba(255,255,255,.06);border-color:var(--wl-edge);color:var(--wl-text)}
 .dshwl-cell-today{font-weight:700}
 .dshwl-cell-selected{border-color:var(--wl-accent-2);box-shadow:0 0 0 1px rgba(192,132,252,.25),0 0 14px rgba(139,92,246,.35)}
-.dshwl-cell-num{line-height:1}
+.dshwl-cell-num{line-height:1;font-size:12px}
 .dshwl-cell-today .dshwl-cell-num{color:var(--wl-accent-2)}
-.dshwl-cell-dot{width:4px;height:4px;border-radius:50%;background:var(--wl-accent-2);display:block;box-shadow:0 0 6px rgba(192,132,252,.8)}
+.dshwl-marks{display:flex;align-items:center;justify-content:center;gap:3px}
+.dshwl-marks-sm{gap:2px}
+.dshwl-mark-dot{width:4px;height:4px;border-radius:50%;background:var(--wl-accent-2);display:block;box-shadow:0 0 6px rgba(192,132,252,.7)}
+.dshwl-marks-sm .dshwl-mark-dot{width:3px;height:3px}
+.dshwl-mark-bar{height:3px;border-radius:2px;background:var(--wl-accent-2);display:block;box-shadow:0 0 6px rgba(192,132,252,.65)}
 .dshwl-cal-status{margin-top:8px;font-size:11px;color:var(--wl-muted)}
-.dshwl-cal-compact{display:flex;align-items:center;gap:10px;margin:18px 0 0;padding:6px 10px;border-radius:12px;border:1px solid var(--wl-edge);background:var(--wl-glass);backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
+.dshwl-cal-compact{display:flex;align-items:center;gap:10px;margin:18px 0 0;padding:8px 12px;border-radius:12px;border:1px solid var(--wl-edge);background:var(--wl-glass);backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
 .dshwl-cal-compact .dshwl-cal-title{white-space:nowrap}
 .dshwl-cal-compact .dshwl-cal-actions{flex:1 1 auto;min-width:0;gap:6px}
 .dshwl-mini{display:flex;align-items:center;gap:4px;flex:1 1 auto;min-width:0}
-.dshwl-mini-cell{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;height:26px;padding:0;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--wl-muted);font:inherit;font-size:12px;cursor:pointer;font-variant-numeric:tabular-nums}
+.dshwl-mini-cell{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;height:44px;padding:0;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--wl-muted);font:inherit;font-size:13px;cursor:pointer;font-variant-numeric:tabular-nums}
 .dshwl-mini-cell:hover{border-color:var(--wl-edge-2);color:var(--wl-text)}
 .dshwl-mini-cell-data{background:rgba(255,255,255,.06);color:var(--wl-text)}
 .dshwl-mini-cell-today{font-weight:700;color:var(--wl-accent-2)}
 .dshwl-mini-cell-selected{border-color:var(--wl-accent-2);color:var(--wl-text)}
-.dshwl-mini-dot{width:3px;height:3px;border-radius:50%;background:var(--wl-accent-2);display:block;box-shadow:0 0 6px rgba(192,132,252,.8)}
 .dshwl-notes{display:flex;flex-direction:column;gap:8px;margin-top:10px}
 .dshwl-note{display:flex;gap:10px;padding:10px 13px;border-radius:11px;background:var(--wl-glass);border:1px solid var(--wl-edge);font-size:12px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
 .dshwl-note strong{color:var(--wl-muted);font-weight:500;font-variant-numeric:tabular-nums}
@@ -272,14 +272,7 @@ window.__ModuleLoader__.load({
         summary !== null
           ? h('p', { className: 'dshwl-note-line' },
             h('span', null, format(t('summary.at'), { time: clock(summary.at) })),
-            summary.source === 'agent' ? h('span', null, t('summary.agent')) : null,
-            summary.stale ? h('span', { className: 'dshwl-stale' }, t('summary.stale')) : null,
-            h('button', {
-              className: 'dshwl-link',
-              type: 'button',
-              disabled: busy,
-              onClick: () => onSummarize(true),
-            }, t('summary.regenerate')))
+            summary.source === 'agent' ? h('span', null, t('summary.agent')) : null)
           : null,
         error !== '' ? h('p', { className: 'dshwl-error-line' },
           format(t('summary.error'), { error }),
@@ -392,7 +385,7 @@ window.__ModuleLoader__.load({
                   onClick: () => onSelect(day),
                 },
                 h('span', null, String(Number(day.slice(8)))),
-                entry === undefined ? null : h('span', { className: 'dshwl-mini-dot' }))
+                entry === undefined ? null : h(DayMark, { ms: entry.ms, start: 26, cap: 34, small: true }))
               })),
             h('button', { className: 'dshwl-btn', type: 'button', title: t('cal.nextWeek'), onClick: props.onNextWeek }, '›'),
             toggle))
@@ -425,7 +418,7 @@ window.__ModuleLoader__.load({
               onClick: () => onSelect(day),
             },
             h('span', { className: 'dshwl-cell-num' }, String(Number(day.slice(8)))),
-            entry === undefined ? null : h('span', { className: 'dshwl-cell-dot' }))
+            entry === undefined ? null : h(DayMark, { ms: entry.ms, start: 40, cap: 62 }))
           })),
         status === 'loading' ? h('div', { className: 'dshwl-cal-status' }, t('cal.loading')) : null)
     }
@@ -434,6 +427,25 @@ window.__ModuleLoader__.load({
     function money(amount, currency) {
       const value = Number(amount)
       return `${currency === 'USD' ? '$' : '¥'}${Number.isFinite(value) ? value.toFixed(2) : '—'}`
+    }
+
+    /**
+     * Calendar day mark: one dot per hour up to three hours, then a bar that
+     * grows with the day (4 h starts at `start` and adds 8px per extra hour).
+     */
+    function DayMark(props) {
+      const hours = (Number(props.ms) || 0) / 3600000
+      if (hours <= 0) return null
+      if (hours >= 4) {
+        const width = Math.min(props.cap, Math.round(props.start + (hours - 4) * 8))
+        return h('span', { className: 'dshwl-mark-bar', style: { width: `${width}px` } })
+      }
+      const count = Math.max(1, Math.min(3, Math.round(hours)))
+      const dots = []
+      for (let index = 0; index < count; index += 1) {
+        dots.push(h('span', { key: index, className: 'dshwl-mark-dot' }))
+      }
+      return h('span', { className: props.small ? 'dshwl-marks dshwl-marks-sm' : 'dshwl-marks' }, dots)
     }
 
     /** Clock-style duration for the HUD: `08:11`. */
@@ -655,9 +667,9 @@ window.__ModuleLoader__.load({
       const [selected, setSelected] = React.useState('')
       const [state, setState] = React.useState({ status: 'loading', data: null, error: '' })
       const [nonce, setNonce] = React.useState(0)
+      const freshRef = React.useRef(false)
       const [busy, setBusy] = React.useState({})
       const [failures, setFailures] = React.useState({})
-      const autoAsked = React.useRef(null)
       const [month, setMonth] = React.useState(() => monthOf(dayString(new Date())))
       const [calendarOpen, setCalendarOpen] = React.useState(() => calendarPref())
       const [monthState, setMonthState] = React.useState({ status: 'idle', data: null })
@@ -666,7 +678,11 @@ window.__ModuleLoader__.load({
         let alive = true
         setState((current) => ({ status: 'loading', data: current.data, error: '' }))
         const query = selected === '' ? '' : `?date=${encodeURIComponent(selected)}`
-        fetch(`/work-log/data.json${query}`, { headers: { accept: 'application/json' } })
+        const fresh = freshRef.current
+        freshRef.current = false
+        fetch(`/work-log/data.json${query}${fresh ? `${query === '' ? '?' : '&'}fresh=1` : ''}`, {
+          headers: { accept: 'application/json' },
+        })
           .then((response) => {
             if (!response.ok) throw new Error(`HTTP ${response.status}`)
             return response.json()
@@ -720,16 +736,6 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
-      // First visit of a day: fill in the projects that have no summary yet.
-      React.useEffect(() => {
-        if (data === null || day === null) return
-        const marker = `${data.date}|${day.projects.length}`
-        if (autoAsked.current === marker) return
-        autoAsked.current = marker
-        for (const project of day.projects) {
-          if (project.summary === null && project.turns > 0) void summarize(day.date, project.key, false)
-        }
-      }, [data, day, summarize])
 
       // The calendar month grid follows the visible month.
       React.useEffect(() => {
@@ -775,7 +781,7 @@ window.__ModuleLoader__.load({
         body = h(React.Fragment, null,
           h('div', {
             className: 'dshwl-projects',
-            style: { gridTemplateColumns: `repeat(${Math.min(day.projects.length, 5)}, minmax(0, 1fr))` },
+            style: { gridTemplateColumns: `repeat(${Math.min(day.projects.length, 3)}, minmax(0, 1fr))` },
           },
             day.projects.map((project, index) => h(Project, {
               key: project.key,
@@ -834,7 +840,11 @@ window.__ModuleLoader__.load({
               h('button', {
                 className: 'dshwl-btn',
                 type: 'button',
-                onClick: () => setNonce((value) => value + 1),
+                title: t('nav.refreshHint'),
+                onClick: () => {
+                  freshRef.current = true
+                  setNonce((value) => value + 1)
+                },
               }, t('nav.refresh')))),
           h(Calendar, {
             t,

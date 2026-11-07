@@ -196,6 +196,12 @@ const agentWritten = await get('/work-log/data.json', '?date=2026-11-07')
 assert.deepEqual(agentWritten.day.projects[0].summary.bullets, ['把登录流程拆成三段并补上回归用例'])
 assert.equal(agentWritten.day.projects[0].summary.source, 'agent')
 
+// manual refresh asks the model again and replaces whatever was stored
+await tools[0].execute({ action: 'refresh', date: '2026-11-07', project: '/work/project' })
+const refreshedByTool = JSON.parse(await readFile(file, 'utf8'))
+assert.deepEqual(refreshedByTool.summaries['/work/project'].bullets, ['重构登录流程，拆成三段', '补了 6 个回归用例'])
+assert.equal(refreshedByTool.summaries['/work/project'].source, 'model')
+
 const recorded = await tools[0].execute({ action: 'record', text: '顺手清理了旧分支', folders: ['scripts'] })
 assert.equal(recorded.projects, 1)
 const withNote = JSON.parse(await readFile(file, 'utf8'))
