@@ -20,6 +20,14 @@ A daily work log for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-
 
 <img src="docs/pill.png" alt="Floating pill" width="366">
 
+## What makes it different
+
+There are a few work-log plugins for DSH. This one is built around three things the others don't do:
+
+- **Money, not just minutes.** It reads your wallet balance through the host's account service and shows today's spend next to the work time. A recharge is tracked as a top-up, so it never resets the spend counter.
+- **A summary, not a transcript.** Each project gets 1–4 lines of "what got solved", generated on demand. The panel only ever receives that prose — prompts and replies stay in the host.
+- **A HUD, not a page.** A small draggable pill stays on screen while you switch Sessions and panels; `›` jumps to the full report.
+
 > 非官方插件。Not affiliated with DeepSeek.
 
 ---
@@ -29,6 +37,8 @@ A daily work log for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-
 ### 它是什么
 
 一个工作日志插件。整页面板看统计和历史，右上角胶囊随时看今天的时长和余额。两个形态读同一个接口，数据永远一致。
+
+和其他 DSH 工作日志插件的区别：**能看到余额与今日花费**、**摘要由模型按项目写（不是对话原文）**、**有一个切会话也不消失的浮窗**。
 
 - 每轮对话自动折成一条记录：你的请求、助手的收尾结论、这一轮动过的目录、改动文件数与增删行数、起止时间
 - 按**工作目录**聚成项目；时长按区间并集计算（同项目合并重叠、跨项目不重复计时、单轮封顶 3 小时、空闲不计）
