@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3 — 2026-11-10
+
+### Fixed
+
+- After a full Harness restart the plugin activated but its three routes were never registered: at boot the web server is still listening, and a plain `ctx.get('webServer')` silently returned nothing. Route registration now waits for the service with `ctx.inject`. Symptom was every panel and pill request returning 404 while the `work_log` tool kept working.
+
 ## 1.0.2 — 2026-11-07
 
 ### Fixed

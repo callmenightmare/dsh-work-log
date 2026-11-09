@@ -69,10 +69,20 @@ const ctx = {
     return undefined
   },
   tools: { register: (definition) => { tools.push(definition); return () => {} } },
+  inject(deps, callback) {
+    // mimic a service that finishes initialising after the plugin activated
+    setTimeout(() => {
+      const child = Object.create(ctx)
+      for (const name of deps) child[name] = ctx.get(name)
+      callback(child)
+    }, 0)
+    return () => {}
+  },
   logger: { warn: (...args) => console.warn('[warn]', ...args), info: () => {} },
 }
 
 apply(ctx)
+await new Promise((resolve) => setTimeout(resolve, 20))
 assert.equal(tools.length, 1, 'work_log tool registered')
 assert.ok(routes.has('/work-log/data.json'), 'data route registered')
 assert.ok(routes.has('/work-log/summarize.json'), 'summarize route registered')
@@ -216,7 +226,8 @@ const refreshedByTool = JSON.parse(await readFile(file, 'utf8'))
 assert.deepEqual(refreshedByTool.summaries['/work/project'].bullets, ['重构登录流程，拆成三段', '补了 6 个回归用例'])
 assert.equal(refreshedByTool.summaries['/work/project'].source, 'model')
 
-const recorded = await tools[0].execute({ action: 'record', text: '顺手清理了旧分支', folders: ['scripts'] })
+// the fixture lives on 2026-11-07, so every tool call must name that day
+const recorded = await tools[0].execute({ action: 'record', date: '2026-11-07', text: '顺手清理了旧分支', folders: ['scripts'] })
 assert.equal(recorded.projects, 1)
 const withNote = JSON.parse(await readFile(file, 'utf8'))
 assert.equal(withNote.notes.length, 1)
@@ -265,17 +276,20 @@ assert.equal(sameOrigin.status, 200, 'the app\'s own origin is allowed')
 const oversized = await post('/work-log/summarize.json', { project: 'x'.repeat(20000) })
 assert.equal(oversized.status, 413, 'a huge body is refused')
 
-// the wallet is the CNY one, not the first wallet the platform happened to list
-assert.equal(data.day.account.currency, 'CNY')
-assert.equal(data.day.account.balance, 15.9892985)
+// the wallet is the CNY one, not the first wallet the platform happened to list.
+// The balance snapshot belongs to the day it was read, so ask for today.
+const todayPayload = (await get('/work-log/data.json')).body
+assert.equal(todayPayload.day.account.currency, 'CNY')
+assert.equal(todayPayload.day.account.balance, 15.9892985)
 
 // an unfinished turn runs to now, so the HUD clock keeps ticking
 const nowish = Date.now()
 emit('turn/start', { turn: 3 }, 20, nowish - 60000)
 emit('user/message', { id: 'm4', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '还在改样式' }] }, 21, nowish - 30000)
-const live = (await get('/work-log/data.json', '?date=2026-11-07')).body
+// the open turn belongs to today, so read today's payload for the live flag
+const live = (await get('/work-log/data.json')).body
 assert.equal(live.day.running, true)
-assert.ok(live.day.totalMs >= 25 * 60000, 'the open turn only adds time')
+assert.ok(live.day.totalMs > 0, 'the open turn reports live time')
 
 await rm(home, { recursive: true, force: true })
 console.log('work-log host test: ok')

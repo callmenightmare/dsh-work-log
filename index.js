@@ -790,9 +790,11 @@ function apply(ctx) {
     return false
   }
 
-  const webServer = ctx.get('webServer')
-  if (webServer !== undefined) {
-    ctx.effect(() => webServer.register({
+  // The web server may still be listening when this row activates at boot, so a
+  // plain ctx.get() would silently skip every route. Wait for the service.
+  ctx.inject(['webServer'], (web) => {
+    const webServer = web.webServer
+    web.effect(() => webServer.register({
       kind: 'exact',
       path: '/work-log/data.json',
       handler: async (req, res) => {
@@ -889,7 +891,7 @@ function apply(ctx) {
         }
       },
     }))
-  }
+  })
 
   // ── model-facing tool ──────────────────────────────────────────────────────
   ctx.tools.register({

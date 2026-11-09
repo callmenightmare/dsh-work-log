@@ -1,6 +1,6 @@
 {
   "name": "dsh-work-log",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Daily work log for DeepSeek Harness: per-project time, model-written summaries, wallet balance, and an always-on floating pill.",
   "license": "MIT",
   "author": "zengmengfan",
